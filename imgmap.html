@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>이미지 맵 좌표 자동 생성기</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 커스텀 스크롤바 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #c1c1c1; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8; 
+        }
+        .canvas-wrapper {
+            position: relative;
+            cursor: crosshair;
+            display: inline-block;
+        }
+        canvas {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans min-h-screen">
+
+    <!-- 상단 헤더 -->
+    <header class="bg-white shadow-sm sticky top-0 z-20">
+        <div class="max-w-7xl mx-auto px-4 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-2xl font-bold text-blue-600">이미지 맵 좌표 생성기</h1>
+                <p class="text-sm text-gray-500 mt-1">클릭 후 delete / backspace 키로 삭제</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <!-- 모드 선택 토글 추가 -->
+                <div class="bg-gray-100 p-1 rounded-lg flex items-center text-sm mr-2 border border-gray-200">
+                    <button id="modeManual" class="px-3 py-1.5 rounded-md bg-white shadow-sm font-medium text-blue-600 transition-all">드래그 (수동)</button>
+                    <button id="modeAuto" class="px-3 py-1.5 rounded-md text-gray-500 hover:text-gray-700 transition-all">클릭 (자동 감지)</button>
+                </div>
+                <label for="imageUpload" class="cursor-pointer bg-blue-500 hover:bg-blue-600 text-white px-5 py-2 rounded-lg font-medium transition-colors shadow-sm text-sm">
+                    이미지 업로드
+                </label>
+                <input type="file" id="imageUpload" accept="image/*" class="hidden">
+                <button type="button" id="clearBtn" class="bg-gray-200 text-gray-400 px-5 py-2 rounded-lg font-medium transition-colors shadow-sm text-sm border border-gray-200 cursor-not-allowed" disabled>
+                    모두 지우기
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 메인 콘텐츠 영역 -->
+    <main class="max-w-7xl mx-auto px-4 py-6 flex flex-col lg:flex-row gap-6 items-start">
+        
+        <!-- 왼쪽: 이미지 캔버스 영역 -->
+        <div class="w-full lg:w-2/3 bg-white rounded-xl shadow-sm p-4 border border-gray-100">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="font-semibold text-lg flex items-center gap-2">
+                    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    작업 영역
+                </h2>
+                <span id="instructionText" class="text-xs text-blue-500 bg-blue-50 px-2 py-1 rounded hidden font-medium">마우스로 드래그하여 영역을 지정하세요</span>
+            </div>
+
+            <!-- 이미지가 없을 때 -->
+            <div id="emptyState" class="w-full h-[500px] flex flex-col items-center justify-center rounded-lg bg-gray-50 text-gray-400 cursor-pointer hover:bg-gray-100 transition-colors border-2 border-dashed border-gray-300">
+                <svg class="w-16 h-16 mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                <p class="text-lg font-medium">이미지를 드래그 앤 드롭하거나 여기를 클릭하세요</p>
+                <p class="text-sm mt-2">jpg, png, webp 등 지원</p>
+            </div>
+
+            <!-- 캔버스 컨테이너 (스크롤 가능) -->
+            <div id="canvasContainer" class="w-full overflow-auto max-h-[70vh] rounded bg-gray-100 hidden text-center">
+                <div class="canvas-wrapper">
+                    <canvas id="mapCanvas"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- 오른쪽: 생성된 코드 및 리스트 영역 -->
+        <div class="w-full lg:w-1/3 flex flex-col gap-4 lg:sticky lg:top-24">
+            
+            <!-- 생성된 코드 패널 -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col h-72">
+                <div class="p-3 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
+                    <div class="flex bg-gray-200 p-1 rounded-lg">
+                        <button id="tabHtml" class="px-3 py-1 text-sm font-medium bg-white text-blue-600 rounded-md shadow-sm transition-all">HTML</button>
+                        <button id="tabCoords" class="px-3 py-1 text-sm font-medium text-gray-500 hover:text-gray-700 rounded-md transition-all">좌표만</button>
+                    </div>
+                    <button id="copyCodeBtn" class="text-xs bg-gray-800 hover:bg-gray-700 text-white px-3 py-1.5 rounded transition-colors shadow-sm">
+                        복사
+                    </button>
+                </div>
+                <div class="relative flex-1">
+                    <textarea id="outputCode" readonly class="w-full h-full p-4 text-sm font-mono text-blue-900 bg-[#f8fafc] resize-none outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 rounded-b-xl absolute inset-0" placeholder="영역을 지정하면 여기에 코드가 생성됩니다."></textarea>
+                    <div id="outputCoords" class="w-full h-full p-4 bg-[#f8fafc] overflow-y-auto hidden absolute inset-0 rounded-b-xl flex flex-col items-stretch">
+                        <div class="text-center py-10 text-gray-400 text-sm">지정된 영역이 없습니다.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 지정된 영역 리스트 관리 -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col flex-1 max-h-[calc(70vh-19rem)] min-h-[300px]">
+                <div class="p-4 border-b border-gray-100 bg-gray-50 rounded-t-xl flex justify-between items-center">
+                    <h2 class="font-semibold text-gray-700">영역 목록 <span id="areaCount" class="bg-blue-100 text-blue-600 text-xs py-0.5 px-2 rounded-full ml-1">0</span></h2>
+                </div>
+                <div id="areaList" class="p-2 overflow-y-auto flex-1 space-y-2">
+                    <div class="text-center py-10 text-gray-400 text-sm">
+                        지정된 영역이 없습니다.
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- 커스텀 알림 모달 -->
+    <div id="toast" class="fixed bottom-5 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg opacity-0 transition-opacity duration-300 pointer-events-none z-50">
+        복사되었습니다!
+    </div>
+
+    <script>
+        const canvas = document.getElementById('mapCanvas');
+        const ctx = canvas.getContext('2d');
+        const imageUpload = document.getElementById('imageUpload');
+        const emptyState = document.getElementById('emptyState');
+        const canvasContainer = document.getElementById('canvasContainer');
+        const instructionText = document.getElementById('instructionText');
+        const outputCode = document.getElementById('outputCode');
+        const outputCoords = document.getElementById('outputCoords');
+        const tabHtml = document.getElementById('tabHtml');
+        const tabCoords = document.getElementById('tabCoords');
+        const areaListEl = document.getElementById('areaList');
+        const clearBtn = document.getElementById('clearBtn');
+        const copyCodeBtn = document.getElementById('copyCodeBtn');
+        const areaCount = document.getElementById('areaCount');
+        const toast = document.getElementById('toast');
+
+        let currentImage = new Image();
+        let areas = [];
+        let manualStep = 0;
+        let firstX = 0, firstY = 0;
+        let currentFileName = "image.jpg";
+        let currentMode = 'manual';
+        let isDraggingArea = false;
+        let draggedAreaIndex = -1;
+        let dragStartX = 0, dragStartY = 0;
+
+        let selectedAreaIndex = -1;
+        let isResizing = false;
+        let resizedAreaIndex = -1;
+        let fixedX = 0, fixedY = 0;
+
+        const modeManualBtn = document.getElementById('modeManual');
+        const modeAutoBtn = document.getElementById('modeAuto');
+
+        let activeTab = 'html';
+        tabHtml.addEventListener('click', () => {
+            activeTab = 'html';
+            tabHtml.classList.add('bg-white', 'shadow-sm', 'text-blue-600');
+            tabHtml.classList.remove('text-gray-500', 'hover:text-gray-700');
+            tabCoords.classList.remove('bg-white', 'shadow-sm', 'text-blue-600');
+            tabCoords.classList.add('text-gray-500', 'hover:text-gray-700');
+            
+            outputCode.classList.remove('hidden');
+            outputCoords.classList.add('hidden');
+            copyCodeBtn.textContent = '복사';
+        });
+
+        tabCoords.addEventListener('click', () => {
+            activeTab = 'coords';
+            tabCoords.classList.add('bg-white', 'shadow-sm', 'text-blue-600');
+            tabCoords.classList.remove('text-gray-500', 'hover:text-gray-700');
+            tabHtml.classList.remove('bg-white', 'shadow-sm', 'text-blue-600');
+            tabHtml.classList.add('text-gray-500', 'hover:text-gray-700');
+            
+            outputCoords.classList.remove('hidden');
+            outputCode.classList.add('hidden');
+            copyCodeBtn.textContent = '전체 복사';
+        });
+
+        modeManualBtn.addEventListener('click', () => {
+            currentMode = 'manual';
+            manualStep = 0;
+            drawCanvas();
+            modeManualBtn.classList.add('bg-white', 'shadow-sm', 'text-blue-600', 'font-medium');
+            modeManualBtn.classList.remove('text-gray-500', 'hover:text-gray-700');
+            modeAutoBtn.classList.remove('bg-white', 'shadow-sm', 'text-blue-600', 'font-medium');
+            modeAutoBtn.classList.add('text-gray-500', 'hover:text-gray-700');
+            instructionText.textContent = "두 번 클릭하여 사각형을 지정하세요 (시작점 클릭 ➔ 끝점 클릭)";
+            canvasContainer.style.cursor = "crosshair";
+        });
+
+        modeAutoBtn.addEventListener('click', () => {
+            currentMode = 'auto';
+            manualStep = 0;
+            drawCanvas();
+            modeAutoBtn.classList.add('bg-white', 'shadow-sm', 'text-blue-600', 'font-medium');
+            modeAutoBtn.classList.remove('text-gray-500', 'hover:text-gray-700');
+            modeManualBtn.classList.remove('bg-white', 'shadow-sm', 'text-blue-600', 'font-medium');
+            modeManualBtn.classList.add('text-gray-500', 'hover:text-gray-700');
+            instructionText.textContent = "버튼 바탕색을 클릭하면 최적의 영역을 자동 계산합니다.";
+            canvasContainer.style.cursor = "crosshair";
+        });
+
+        function processImageFile(file) {
+            if (!file || !file.type.startsWith('image/')) {
+                alert('이미지 파일만 업로드 가능합니다.');
+                return;
+            }
+
+            currentFileName = file.name;
+            const reader = new FileReader();
+            
+            reader.onload = (event) => {
+                currentImage.onload = () => {
+                    canvas.width = currentImage.width;
+                    canvas.height = currentImage.height;
+                    
+                    emptyState.classList.add('hidden');
+                    canvasContainer.classList.remove('hidden');
+                    instructionText.classList.remove('hidden');
+                    
+                    clearBtn.disabled = false;
+                    clearBtn.classList.remove('bg-gray-200', 'text-gray-400', 'border-gray-200', 'cursor-not-allowed');
+                    clearBtn.classList.add('bg-red-50', 'hover:bg-red-100', 'text-red-600', 'border-red-200', 'cursor-pointer');
+                    
+                    areas = [];
+                    updateAll();
+                };
+                currentImage.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        imageUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                processImageFile(file);
+            }
+            e.target.value = '';
+        });
+
+        emptyState.addEventListener('click', () => {
+            imageUpload.click();
+        });
+
+        emptyState.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            emptyState.classList.add('border-blue-400', 'bg-blue-50');
+            emptyState.classList.remove('border-gray-300', 'bg-gray-50');
+        });
+
+        emptyState.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            emptyState.classList.remove('border-blue-400', 'bg-blue-50');
+            emptyState.classList.add('border-gray-300', 'bg-gray-50');
+        });
+
+        emptyState.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            emptyState.classList.remove('border-blue-400', 'bg-blue-50');
+            emptyState.classList.add('border-gray-300', 'bg-gray-50');
+            
+            const files = e.dataTransfer.files;
+            if (files && files.length > 0) {
+                processImageFile(files[0]);
+            }
+        });
+
+        function getMousePos(evt) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+
+            return {
+                x: (evt.clientX - rect.left) * scaleX,
+                y: (evt.clientY - rect.top) * scaleY
+            };
+        }
+
+        function getHoveredAreaIndex(x, y) {
+            for (let i = areas.length - 1; i >= 0; i--) {
+                const [x1, y1, x2, y2] = areas[i].coords;
+                if (x >= x1 && x <= x2 && y >= y1 && y <= y2) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        function getHoveredHandle(x, y) {
+            const scale = canvas.width / canvas.clientWidth;
+            const radius = 8 * scale;
+
+            for (let i = areas.length - 1; i >= 0; i--) {
+                const [x1, y1, x2, y2] = areas[i].coords;
+                const handles = [
+                    { type: 'tl', hx: x1, hy: y1 },
+                    { type: 'tr', hx: x2, hy: y1 },
+                    { type: 'bl', hx: x1, hy: y2 },
+                    { type: 'br', hx: x2, hy: y2 }
+                ];
+                for (let h of handles) {
+                    if (Math.abs(x - h.hx) <= radius && Math.abs(y - h.hy) <= radius) {
+                        return { index: i, type: h.type };
+                    }
+                }
+            }
+            return null;
+        }
+
+        function computeBounds(startX, startY, tolerance, width, height, data, maxValidArea) {
+            const startIndex = (startY * width + startX) * 4;
+            const targetR = data[startIndex];
+            const targetG = data[startIndex + 1];
+            const targetB = data[startIndex + 2];
+
+            function colorsMatch(r, g, b) {
+                return Math.abs(r - targetR) <= tolerance &&
+                       Math.abs(g - targetG) <= tolerance &&
+                       Math.abs(b - targetB) <= tolerance;
+            }
+
+            let minX = startX, maxX = startX, minY = startY, maxY = startY;
+            const stack = [[startX, startY]];
+            
+            const visited = new Uint8Array(width * height);
+            visited[startY * width + startX] = 1;
+
+            let iterations = 0;
+
+            while (stack.length > 0) {
+                const [x, y] = stack.pop();
+                iterations++;
+
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+
+                if (iterations % 2000 === 0) {
+                    const currentArea = (maxX - minX) * (maxY - minY);
+                    if (currentArea >= maxValidArea) {
+                        break;
+                    }
+                }
+
+                const neighbors = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]];
+
+                for (let i = 0; i < 4; i++) {
+                    const nx = neighbors[i][0];
+                    const ny = neighbors[i][1];
+                    
+                    if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                        const idx = ny * width + nx;
+                        if (!visited[idx]) {
+                            visited[idx] = 1;
+                            const pIdx = idx * 4;
+                            if (colorsMatch(data[pIdx], data[pIdx+1], data[pIdx+2])) {
+                                stack.push([nx, ny]);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            const padding = 0;
+            return {
+                x1: Math.max(0, minX - padding),
+                y1: Math.max(0, minY - padding),
+                x2: Math.min(width, maxX + padding),
+                y2: Math.min(height, maxY + padding),
+                areaSize: (Math.min(width, maxX + padding) - Math.max(0, minX - padding)) * (Math.min(height, maxY + padding) - Math.max(0, minY - padding))
+            };
+        }
+
+        function autoDetectBounds(startX, startY) {
+            startX = Math.round(startX);
+            startY = Math.round(startY);
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const width = canvas.width;
+            const height = canvas.height;
+            const maxValidArea = width * height * 0.90;
+
+            const tolerances = [3, 6, 9, 12, 16, 20, 25, 30, 40, 50];
+            let bestBounds = null;
+
+            for (let tol of tolerances) {
+                const bounds = computeBounds(startX, startY, tol, width, height, imageData.data, maxValidArea);
+                
+                if (bounds.areaSize >= maxValidArea) {
+                    break; 
+                }
+                
+                if (bestBounds) {
+                    const jumpRatio = bounds.areaSize / bestBounds.areaSize;
+                    if (bestBounds.areaSize > (width * height * 0.005) && jumpRatio > 2.5) {
+                        break;
+                    }
+                }
+                
+                if (bounds.areaSize > 100) {
+                    bestBounds = bounds;
+                }
+            }
+            
+            return bestBounds;
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            const pos = getMousePos(e);
+            
+            if (manualStep === 0) {
+                const handle = getHoveredHandle(pos.x, pos.y);
+                if (handle) {
+                    selectedAreaIndex = handle.index;
+                    isResizing = true;
+                    resizedAreaIndex = handle.index;
+                    const [x1, y1, x2, y2] = areas[handle.index].coords;
+                    
+                    if (handle.type === 'tl') { fixedX = x2; fixedY = y2; }
+                    if (handle.type === 'tr') { fixedX = x1; fixedY = y2; }
+                    if (handle.type === 'bl') { fixedX = x2; fixedY = y1; }
+                    if (handle.type === 'br') { fixedX = x1; fixedY = y1; }
+                    updateAll();
+                    return; 
+                }
+
+                const hoveredIdx = getHoveredAreaIndex(pos.x, pos.y);
+                if (hoveredIdx !== -1) {
+                    selectedAreaIndex = hoveredIdx;
+                    isDraggingArea = true;
+                    draggedAreaIndex = hoveredIdx;
+                    dragStartX = pos.x;
+                    dragStartY = pos.y;
+                    updateAll();
+                    return;
+                }
+
+                if (currentMode === 'manual') {
+                    selectedAreaIndex = -1;
+                    updateAll();
+                }
+            }
+
+            if (currentMode === 'auto') {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(currentImage, 0, 0);
+                
+                const bounds = autoDetectBounds(pos.x, pos.y);
+                const totalSize = canvas.width * canvas.height;
+                
+                if (bounds && bounds.areaSize > 100 && bounds.areaSize < totalSize * 0.8) {
+                    areas.push({
+                        coords: [bounds.x1, bounds.y1, bounds.x2, bounds.y2],
+                        href: '#',
+                        alt: `영역 ${areas.length + 1}`
+                    });
+                    selectedAreaIndex = areas.length - 1;
+                } else {
+                    alert('영역을 감지하지 못했습니다. (배경을 클릭했거나 요소가 화면의 80% 이상으로 너무 큽니다.)');
+                    selectedAreaIndex = -1;
+                }
+                
+                updateAll();
+                return;
+            }
+
+            if (currentMode === 'manual') {
+                if (manualStep === 0) {
+                    firstX = pos.x;
+                    firstY = pos.y;
+                    manualStep = 1;
+                } else if (manualStep === 1) {
+                    const x1 = Math.round(Math.min(firstX, pos.x));
+                    const y1 = Math.round(Math.min(firstY, pos.y));
+                    const x2 = Math.round(Math.max(firstX, pos.x));
+                    const y2 = Math.round(Math.max(firstY, pos.y));
+
+                    if (x2 - x1 > 5 && y2 - y1 > 5) {
+                        areas.push({
+                            coords: [x1, y1, x2, y2],
+                            href: '#',
+                            alt: `영역 ${areas.length + 1}`
+                        });
+                        selectedAreaIndex = areas.length - 1;
+                    }
+                    manualStep = 0;
+                    updateAll();
+                }
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            const pos = getMousePos(e);
+            
+            if (isResizing && resizedAreaIndex !== -1) {
+                const newX1 = Math.round(Math.min(fixedX, pos.x));
+                const newY1 = Math.round(Math.min(fixedY, pos.y));
+                const newX2 = Math.round(Math.max(fixedX, pos.x));
+                const newY2 = Math.round(Math.max(fixedY, pos.y));
+
+                const finalX1 = Math.max(0, newX1);
+                const finalY1 = Math.max(0, newY1);
+                const finalX2 = Math.min(canvas.width, newX2);
+                const finalY2 = Math.min(canvas.height, newY2);
+
+                areas[resizedAreaIndex].coords = [finalX1, finalY1, finalX2, finalY2];
+                drawCanvas();
+                return;
+            }
+
+            if (isDraggingArea && draggedAreaIndex !== -1) {
+                const dx = pos.x - dragStartX;
+                const dy = pos.y - dragStartY;
+
+                let area = areas[draggedAreaIndex];
+                let [x1, y1, x2, y2] = area.coords;
+                const w = x2 - x1;
+                const h = y2 - y1;
+
+                x1 += dx; y1 += dy; x2 += dx; y2 += dy;
+
+                if (x1 < 0) { x1 = 0; x2 = w; }
+                if (y1 < 0) { y1 = 0; y2 = h; }
+                if (x2 > canvas.width) { x2 = canvas.width; x1 = canvas.width - w; }
+                if (y2 > canvas.height) { y2 = canvas.height; y1 = canvas.height - h; }
+
+                areas[draggedAreaIndex].coords = [Math.round(x1), Math.round(y1), Math.round(x2), Math.round(y2)];
+
+                dragStartX = pos.x;
+                dragStartY = pos.y;
+
+                drawCanvas();
+                return;
+            }
+
+            let cursorStyle = 'crosshair';
+            if (manualStep === 0) {
+                const handle = getHoveredHandle(pos.x, pos.y);
+                if (handle) {
+                    if (handle.type === 'tl' || handle.type === 'br') cursorStyle = 'nwse-resize';
+                    else cursorStyle = 'nesw-resize';
+                } else {
+                    const hoveredIdx = getHoveredAreaIndex(pos.x, pos.y);
+                    if (hoveredIdx !== -1) cursorStyle = 'move';
+                }
+            }
+            if (canvas.style.cursor !== cursorStyle) {
+                canvas.style.cursor = cursorStyle;
+            }
+
+            if (currentMode === 'manual' && manualStep === 1) {
+                drawCanvas();
+                
+                ctx.fillStyle = 'rgba(59, 130, 246, 0.3)';
+                ctx.fillRect(firstX, firstY, pos.x - firstX, pos.y - firstY);
+                ctx.strokeStyle = '#3b82f6';
+                ctx.lineWidth = 2 * (canvas.width / canvas.clientWidth);
+                ctx.strokeRect(firstX, firstY, pos.x - firstX, pos.y - firstY);
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (isDraggingArea || isResizing) {
+                isDraggingArea = false;
+                draggedAreaIndex = -1;
+                isResizing = false;
+                resizedAreaIndex = -1;
+                updateAll();
+            }
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+            if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAreaIndex !== -1) {
+                e.preventDefault();
+                areas.splice(selectedAreaIndex, 1);
+                selectedAreaIndex = -1;
+                updateAll();
+            }
+        });
+
+        function drawCanvas() {
+            if (!currentImage.src) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(currentImage, 0, 0);
+
+            areas.forEach((area, index) => {
+                const [x1, y1, x2, y2] = area.coords;
+                const width = x2 - x1;
+                const height = y2 - y1;
+                const scale = canvas.width / canvas.clientWidth;
+
+                const isSelected = index === selectedAreaIndex;
+
+                ctx.fillStyle = isSelected ? 'rgba(59, 130, 246, 0.4)' : 'rgba(239, 68, 68, 0.4)';
+                ctx.fillRect(x1, y1, width, height);
+                ctx.strokeStyle = isSelected ? '#3b82f6' : '#ef4444';
+                ctx.lineWidth = (isSelected ? 3 : 2) * scale;
+                ctx.strokeRect(x1, y1, width, height);
+
+                const handleRadius = (isSelected ? 5 : 4) * scale;
+                ctx.fillStyle = '#ffffff';
+                const corners = [
+                    [x1, y1], [x2, y1], [x1, y2], [x2, y2]
+                ];
+                for (let [cx, cy] of corners) {
+                    ctx.fillRect(cx - handleRadius, cy - handleRadius, handleRadius * 2, handleRadius * 2);
+                    ctx.strokeRect(cx - handleRadius, cy - handleRadius, handleRadius * 2, handleRadius * 2);
+                }
+
+                ctx.fillStyle = 'white';
+                ctx.font = `bold ${Math.max(16, 16 * scale)}px Arial`;
+                const textWidth = ctx.measureText(index + 1).width;
+                ctx.fillStyle = isSelected ? '#3b82f6' : '#ef4444';
+                ctx.fillRect(x1 + 6 * scale, y1 + 6 * scale, textWidth + 10 * scale, 24 * scale);
+                ctx.fillStyle = 'white';
+                ctx.fillText(index + 1, x1 + 11 * scale, y1 + 24 * scale);
+            });
+        }
+
+        function generateCode() {
+            if (areas.length === 0) {
+                outputCode.value = '';
+                outputCoords.innerHTML = '<div class="text-center py-10 text-gray-400 text-sm">지정된 영역이 없습니다.</div>';
+                return;
+            }
+
+            let code = `<!-- 이미지 태그에 usemap 속성을 추가하세요 -->\n`;
+            code += `<img src="${currentFileName}" alt="이벤트 이미지" usemap="#image-map">\n\n`;
+            code += `<map name="image-map">\n`;
+            
+            areas.forEach(area => {
+                code += `    <area alt="${area.alt}" title="${area.alt}" href="${area.href}" coords="${area.coords.join(',')}" shape="rect">\n`;
+            });
+            
+            code += `</map>`;
+            outputCode.value = code;
+
+            outputCoords.innerHTML = '';
+            areas.forEach((area, index) => {
+                const coordsStr = area.coords.join(',');
+                const isSelected = index === selectedAreaIndex;
+                const btn = document.createElement('button');
+                
+                btn.className = `w-full text-left px-3 py-2 mb-2 bg-white border ${isSelected ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200'} rounded-lg shadow-sm hover:border-blue-400 hover:bg-blue-50 transition-colors flex justify-between items-center group`;
+                btn.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="${isSelected ? 'bg-blue-500' : 'bg-gray-400'} text-white text-[10px] font-bold px-1.5 py-0.5 rounded">#${index + 1}</span>
+                        <span class="font-mono text-sm text-gray-700 group-hover:text-blue-700">${coordsStr}</span>
+                    </div>
+                    <span class="text-xs text-gray-500 bg-gray-100 group-hover:bg-blue-100 group-hover:text-blue-600 px-2 py-1 rounded transition-colors">복사</span>
+                `;
+                
+                btn.addEventListener('click', () => {
+                    selectedAreaIndex = index;
+                    updateAll();
+                    copyToClipboard(coordsStr);
+                });
+                
+                outputCoords.appendChild(btn);
+            });
+        }
+
+        function renderAreaList() {
+            areaCount.textContent = areas.length;
+            
+            if (areas.length === 0) {
+                areaListEl.innerHTML = '<div class="text-center py-10 text-gray-400 text-sm">지정된 영역이 없습니다.</div>';
+                return;
+            }
+
+            areaListEl.innerHTML = '';
+            areas.forEach((area, index) => {
+                const isSelected = index === selectedAreaIndex;
+                const item = document.createElement('div');
+                item.className = `bg-white border ${isSelected ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200'} rounded-lg p-3 shadow-sm hover:border-blue-300 transition-colors group relative cursor-pointer`;
+                
+                item.addEventListener('click', (e) => {
+                    if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.closest('button')) {
+                        selectedAreaIndex = index;
+                        updateAll();
+                    }
+                });
+
+                item.innerHTML = `
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="${isSelected ? 'bg-blue-500' : 'bg-red-500'} text-white text-xs font-bold px-2 py-0.5 rounded">#${index + 1}</span>
+                        <button class="delete-btn text-gray-400 hover:text-red-500 transition-colors" data-index="${index}" title="삭제">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                    </div>
+                    <div class="space-y-2">
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">링크 (href)</label>
+                            <input type="text" class="href-input w-full border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-500" value="${area.href}" data-index="${index}">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">설명 (alt)</label>
+                            <input type="text" class="alt-input w-full border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-500" value="${area.alt}" data-index="${index}">
+                        </div>
+                        <div class="text-xs text-gray-400 pt-1 font-mono">
+                            좌표: ${area.coords.join(', ')}
+                        </div>
+                    </div>
+                `;
+                areaListEl.appendChild(item);
+            });
+
+            document.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const idx = parseInt(e.currentTarget.getAttribute('data-index'));
+                    areas.splice(idx, 1);
+                    if (selectedAreaIndex === idx) selectedAreaIndex = -1;
+                    else if (selectedAreaIndex > idx) selectedAreaIndex--;
+                    updateAll();
+                });
+            });
+
+            document.querySelectorAll('.href-input').forEach(input => {
+                input.addEventListener('change', (e) => {
+                    const idx = parseInt(e.target.getAttribute('data-index'));
+                    areas[idx].href = e.target.value;
+                    generateCode();
+                });
+            });
+
+            document.querySelectorAll('.alt-input').forEach(input => {
+                input.addEventListener('change', (e) => {
+                    const idx = parseInt(e.target.getAttribute('data-index'));
+                    areas[idx].alt = e.target.value;
+                    generateCode();
+                });
+            });
+        }
+
+        function updateAll() {
+            drawCanvas();
+            generateCode();
+            renderAreaList();
+        }
+
+        clearBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if(confirm('모든 영역을 지우시겠습니까?')) {
+                areas = [];
+                manualStep = 0; 
+                isDraggingArea = false; 
+                isResizing = false;
+                selectedAreaIndex = -1;
+                updateAll();
+            }
+        });
+
+        function copyToClipboard(text) {
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(text).then(showToast);
+                } else {
+                    const tempTextArea = document.createElement("textarea");
+                    tempTextArea.value = text;
+                    document.body.appendChild(tempTextArea);
+                    tempTextArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(tempTextArea);
+                    showToast();
+                }
+            } catch (err) {
+                console.error('복사 실패', err);
+                alert('복사하지 못했습니다. 수동으로 복사해주세요.');
+            }
+        }
+
+        copyCodeBtn.addEventListener('click', () => {
+            if (activeTab === 'html') {
+                if(!outputCode.value) return;
+                outputCode.select();
+                outputCode.setSelectionRange(0, 99999);
+                copyToClipboard(outputCode.value);
+            } else {
+                if (areas.length === 0) return;
+                const allCoords = areas.map(area => area.coords.join(',')).join('\n');
+                copyToClipboard(allCoords);
+            }
+        });
+
+        function showToast() {
+            toast.style.opacity = '1';
+            toast.style.pointerEvents = 'auto';
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.pointerEvents = 'none';
+            }, 2000);
+        }
+    </script>
+</body>
+</html>
