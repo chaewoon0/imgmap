@@ -95,39 +95,45 @@
         <!-- 오른쪽: 생성된 코드 및 리스트 영역 -->
         <div class="w-full lg:w-1/3 flex flex-col gap-4 lg:sticky lg:top-24">
             
-            <!-- 생성된 코드 패널 -->
-            <div class="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col h-72">
+            <!-- 통합 패널 -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col h-[70vh]">
                 <div class="p-3 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
                     <div class="flex bg-gray-200 p-1 rounded-lg">
                         <button id="tabHtml" class="px-3 py-1 text-sm font-medium text-gray-500 hover:text-gray-700 rounded-md transition-all">HTML</button>
                         <button id="tabCoords" class="px-3 py-1 text-sm font-medium bg-white text-blue-600 rounded-md shadow-sm transition-all">좌표만</button>
+                        <button id="tabList" class="px-3 py-1 text-sm font-medium text-gray-500 hover:text-gray-700 rounded-md transition-all flex items-center gap-1">
+                            목록 <span id="areaCountTab" class="bg-gray-300 text-gray-500 text-[10px] font-bold py-0.5 px-1.5 rounded-full transition-colors">0</span>
+                        </button>
                     </div>
-                    <button id="copyCodeBtn" class="text-xs bg-gray-800 hover:bg-gray-700 text-white px-3 py-1.5 rounded transition-colors shadow-sm">
-                        전체 복사
+                    <button id="copyCodeBtn" class="text-xs bg-gray-800 hover:bg-gray-700 text-white px-3 py-1.5 rounded transition-colors shadow-sm" style="display: none;">
+                        복사
                     </button>
                 </div>
-                <div class="relative flex-1">
+                <div class="relative flex-1 overflow-hidden">
+                    <!-- HTML 탭 내용 -->
                     <textarea id="outputCode" readonly class="w-full h-full p-4 text-sm font-mono text-blue-900 bg-[#f8fafc] resize-none outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 rounded-b-xl absolute inset-0 hidden" placeholder="영역을 지정하면 여기에 코드가 생성됩니다."></textarea>
+                    
+                    <!-- 좌표만 탭 내용 (기본 표시) -->
                     <div id="outputCoords" class="w-full h-full p-4 bg-[#f8fafc] overflow-y-auto absolute inset-0 rounded-b-xl flex flex-col items-stretch">
                         <div class="text-center py-10 text-gray-400 text-sm">지정된 영역이 없습니다.</div>
                     </div>
-                </div>
-            </div>
 
-            <!-- 지정된 영역 리스트 관리 -->
-            <div class="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col flex-1 max-h-[calc(70vh-19rem)] min-h-[300px]">
-                <div class="p-4 border-b border-gray-100 bg-gray-50 rounded-t-xl flex justify-between items-center">
-                    <h2 class="font-semibold text-gray-700">영역 목록 <span id="areaCount" class="bg-blue-100 text-blue-600 text-xs py-0.5 px-2 rounded-full ml-1">0</span></h2>
-                </div>
-                <div id="areaList" class="p-2 overflow-y-auto flex-1 space-y-2">
-                    <div class="text-center py-10 text-gray-400 text-sm">
-                        지정된 영역이 없습니다.
+                    <!-- 영역 목록 탭 내용 -->
+                    <div id="outputList" class="w-full h-full p-2 bg-[#f8fafc] overflow-y-auto absolute inset-0 rounded-b-xl hidden flex flex-col">
+                        <div id="areaList" class="space-y-2">
+                            <div class="text-center py-10 text-gray-400 text-sm">지정된 영역이 없습니다.</div>
+                        </div>
                     </div>
                 </div>
             </div>
 
         </div>
     </main>
+
+    <!-- 영역 미리보기 툴팁 (마우스 오버 시 표시) -->
+    <div id="areaPreviewTooltip" class="fixed z-50 pointer-events-none hidden bg-white p-1.5 rounded-lg shadow-xl border border-gray-200">
+        <canvas id="previewCanvas" class="block rounded border border-gray-100"></canvas>
+    </div>
 
     <!-- 커스텀 알림 모달 -->
     <div id="toast" class="fixed bottom-5 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg opacity-0 transition-opacity duration-300 pointer-events-none z-50">
@@ -143,13 +149,18 @@
         const instructionText = document.getElementById('instructionText');
         const outputCode = document.getElementById('outputCode');
         const outputCoords = document.getElementById('outputCoords');
+        const outputList = document.getElementById('outputList');
         const tabHtml = document.getElementById('tabHtml');
         const tabCoords = document.getElementById('tabCoords');
+        const tabList = document.getElementById('tabList');
         const areaListEl = document.getElementById('areaList');
         const clearBtn = document.getElementById('clearBtn');
         const copyCodeBtn = document.getElementById('copyCodeBtn');
-        const areaCount = document.getElementById('areaCount');
+        const areaCountTab = document.getElementById('areaCountTab');
         const toast = document.getElementById('toast');
+        const previewTooltip = document.getElementById('areaPreviewTooltip');
+        const previewCanvas = document.getElementById('previewCanvas');
+        const previewCtx = previewCanvas.getContext('2d');
 
         let currentImage = new Image();
         let areas = [];
@@ -166,33 +177,93 @@
         let resizedAreaIndex = -1;
         let fixedX = 0, fixedY = 0;
 
+        // --- 공통 툴팁 제어 로직 ---
+        const positionTooltip = (e) => {
+            let left = e.clientX - previewTooltip.offsetWidth - 15; // 마우스 좌측에 배치
+            let top = e.clientY - (previewTooltip.offsetHeight / 2); // 수직 중앙 정렬 느낌
+            
+            // 화면 밖으로 나가지 않도록 경계 보정
+            if (left < 10) left = e.clientX + 15; // 좌측 공간이 부족하면 우측에 표시
+            if (top < 10) top = 10;
+            if (top + previewTooltip.offsetHeight > window.innerHeight - 10) {
+                top = window.innerHeight - previewTooltip.offsetHeight - 10;
+            }
+            
+            previewTooltip.style.left = left + 'px';
+            previewTooltip.style.top = top + 'px';
+        };
+
+        const showPreviewTooltip = (e, area) => {
+            const [x1, y1, x2, y2] = area.coords;
+            const w = x2 - x1;
+            const h = y2 - y1;
+            
+            if (w <= 0 || h <= 0) return;
+
+            // 최대 미리보기 크기 설정 (500px로 축소)
+            const MAX_SIZE = 500;
+            let scale = 1;
+            if (w > MAX_SIZE || h > MAX_SIZE) {
+                scale = Math.min(MAX_SIZE / w, MAX_SIZE / h);
+            }
+            
+            const pWidth = w * scale;
+            const pHeight = h * scale;
+            
+            previewCanvas.width = pWidth;
+            previewCanvas.height = pHeight;
+            
+            // 원본 이미지의 해당 영역만 잘라서 그리기
+            previewCtx.drawImage(currentImage, x1, y1, w, h, 0, 0, pWidth, pHeight);
+            
+            previewTooltip.classList.remove('hidden');
+            
+            // 렌더링 후 크기를 기반으로 위치 조정
+            requestAnimationFrame(() => positionTooltip(e));
+        };
+
+        const hidePreviewTooltip = () => {
+            previewTooltip.classList.add('hidden');
+        };
+        // ---------------------------
+
         const modeManualBtn = document.getElementById('modeManual');
         const modeAutoBtn = document.getElementById('modeAuto');
 
         let activeTab = 'coords';
-        tabHtml.addEventListener('click', () => {
-            activeTab = 'html';
-            tabHtml.classList.add('bg-white', 'shadow-sm', 'text-blue-600');
-            tabHtml.classList.remove('text-gray-500', 'hover:text-gray-700');
-            tabCoords.classList.remove('bg-white', 'shadow-sm', 'text-blue-600');
-            tabCoords.classList.add('text-gray-500', 'hover:text-gray-700');
-            
-            outputCode.classList.remove('hidden');
-            outputCoords.classList.add('hidden');
-            copyCodeBtn.textContent = '복사';
-        });
-
-        tabCoords.addEventListener('click', () => {
-            activeTab = 'coords';
-            tabCoords.classList.add('bg-white', 'shadow-sm', 'text-blue-600');
-            tabCoords.classList.remove('text-gray-500', 'hover:text-gray-700');
-            tabHtml.classList.remove('bg-white', 'shadow-sm', 'text-blue-600');
-            tabHtml.classList.add('text-gray-500', 'hover:text-gray-700');
-            
-            outputCoords.classList.remove('hidden');
+        
+        function updateTabUI() {
+            // 모든 탭 초기화
+            [tabHtml, tabCoords, tabList].forEach(tab => {
+                tab.classList.remove('bg-white', 'shadow-sm', 'text-blue-600');
+                tab.classList.add('text-gray-500', 'hover:text-gray-700');
+            });
             outputCode.classList.add('hidden');
-            copyCodeBtn.textContent = '전체 복사';
-        });
+            outputCoords.classList.add('hidden');
+            outputList.classList.add('hidden');
+            copyCodeBtn.style.display = 'none';
+
+            // 선택된 탭 활성화
+            if (activeTab === 'html') {
+                tabHtml.classList.add('bg-white', 'shadow-sm', 'text-blue-600');
+                tabHtml.classList.remove('text-gray-500', 'hover:text-gray-700');
+                outputCode.classList.remove('hidden');
+                copyCodeBtn.style.display = 'block';
+                copyCodeBtn.textContent = '복사';
+            } else if (activeTab === 'coords') {
+                tabCoords.classList.add('bg-white', 'shadow-sm', 'text-blue-600');
+                tabCoords.classList.remove('text-gray-500', 'hover:text-gray-700');
+                outputCoords.classList.remove('hidden');
+            } else if (activeTab === 'list') {
+                tabList.classList.add('bg-white', 'shadow-sm', 'text-blue-600');
+                tabList.classList.remove('text-gray-500', 'hover:text-gray-700');
+                outputList.classList.remove('hidden');
+            }
+        }
+
+        tabHtml.addEventListener('click', () => { activeTab = 'html'; updateTabUI(); });
+        tabCoords.addEventListener('click', () => { activeTab = 'coords'; updateTabUI(); });
+        tabList.addEventListener('click', () => { activeTab = 'list'; updateTabUI(); });
 
         modeManualBtn.addEventListener('click', () => {
             currentMode = 'manual';
@@ -305,10 +376,6 @@
             
             const files = e.dataTransfer.files;
             if (files && files.length > 0) {
-                // 기존 작업 내역이 있을 경우 경고 표시
-                if (currentImage.src && areas.length > 0) {
-                    if(!confirm('새 이미지를 업로드하면 현재까지 작업한 영역이 모두 지워집니다. 진행하시겠습니까?')) return;
-                }
                 processImageFile(files[0]);
             }
         });
@@ -777,12 +844,25 @@
                     copyToClipboard(coordsStr);
                 });
                 
+                // 마우스 호버(미리보기 툴팁) 이벤트 추가 (좌표만 탭)
+                btn.addEventListener('mouseenter', (e) => showPreviewTooltip(e, area));
+                btn.addEventListener('mousemove', positionTooltip);
+                btn.addEventListener('mouseleave', hidePreviewTooltip);
+                
                 outputCoords.appendChild(btn);
             });
         }
 
         function renderAreaList() {
-            areaCount.textContent = areas.length;
+            // 탭에 표시되는 영역 개수 뱃지 업데이트
+            areaCountTab.textContent = areas.length;
+            if(areas.length > 0) {
+                areaCountTab.classList.remove('bg-gray-300', 'text-gray-500');
+                areaCountTab.classList.add('bg-blue-100', 'text-blue-600');
+            } else {
+                areaCountTab.classList.add('bg-gray-300', 'text-gray-500');
+                areaCountTab.classList.remove('bg-blue-100', 'text-blue-600');
+            }
             
             if (areas.length === 0) {
                 areaListEl.innerHTML = '<div class="text-center py-10 text-gray-400 text-sm">지정된 영역이 없습니다.</div>';
@@ -809,7 +889,7 @@
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                         </button>
                     </div>
-                    <div class="space-y-2">
+                    <div class="space-y-2 pointer-events-auto">
                         <div>
                             <label class="text-xs text-gray-500 block mb-1">링크 (href)</label>
                             <input type="text" class="href-input w-full border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-500" value="${area.href}" data-index="${index}">
@@ -823,6 +903,12 @@
                         </div>
                     </div>
                 `;
+                
+                // 마우스 호버(미리보기 툴팁) 이벤트 공통 함수 적용 (목록 탭)
+                item.addEventListener('mouseenter', (e) => showPreviewTooltip(e, area));
+                item.addEventListener('mousemove', positionTooltip);
+                item.addEventListener('mouseleave', hidePreviewTooltip);
+
                 areaListEl.appendChild(item);
             });
 
@@ -897,10 +983,6 @@
                 outputCode.select();
                 outputCode.setSelectionRange(0, 99999);
                 copyToClipboard(outputCode.value);
-            } else {
-                if (areas.length === 0) return;
-                const allCoords = areas.map(area => area.coords.join(',')).join('\n');
-                copyToClipboard(allCoords);
             }
         });
 
