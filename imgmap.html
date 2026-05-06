@@ -98,28 +98,38 @@
             <!-- 통합 패널 -->
             <div class="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col h-[70vh]">
                 <div class="p-3 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
-                    <div class="flex bg-gray-200 p-1 rounded-lg">
-                        <button id="tabHtml" class="px-3 py-1 text-sm font-medium text-gray-500 hover:text-gray-700 rounded-md transition-all">HTML</button>
-                        <button id="tabCoords" class="px-3 py-1 text-sm font-medium bg-white text-blue-600 rounded-md shadow-sm transition-all">좌표만</button>
-                        <button id="tabList" class="px-3 py-1 text-sm font-medium text-gray-500 hover:text-gray-700 rounded-md transition-all flex items-center gap-1">
+                    <div class="flex bg-gray-200 p-1 rounded-lg w-full">
+                        <button id="tabHtml" class="flex-1 px-2 py-1 text-sm font-medium text-gray-500 hover:text-gray-700 rounded-md transition-all">코드 매핑</button>
+                        <button id="tabCoords" class="flex-1 px-2 py-1 text-sm font-medium bg-white text-blue-600 rounded-md shadow-sm transition-all">좌표만</button>
+                        <button id="tabList" class="flex-1 px-2 py-1 text-sm font-medium text-gray-500 hover:text-gray-700 rounded-md transition-all flex items-center justify-center gap-1">
                             목록 <span id="areaCountTab" class="bg-gray-300 text-gray-500 text-[10px] font-bold py-0.5 px-1.5 rounded-full transition-colors">0</span>
                         </button>
                     </div>
-                    <button id="copyCodeBtn" class="text-xs bg-gray-800 hover:bg-gray-700 text-white px-3 py-1.5 rounded transition-colors shadow-sm" style="display: none;">
-                        복사
-                    </button>
                 </div>
                 <div class="relative flex-1 overflow-hidden">
-                    <!-- HTML 탭 내용 -->
-                    <textarea id="outputCode" readonly class="w-full h-full p-4 text-sm font-mono text-blue-900 bg-[#f8fafc] resize-none outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 rounded-b-xl absolute inset-0 hidden" placeholder="영역을 지정하면 여기에 코드가 생성됩니다."></textarea>
+                    <!-- HTML 탭 내용 (매핑 전용 공간) -->
+                    <div id="outputHtmlContainer" class="absolute inset-0 hidden flex-col bg-[#f8fafc] rounded-b-xl z-10">
+                        <div class="flex justify-between items-center p-2 border-b border-gray-200/60 bg-white/50 backdrop-blur-sm">
+                            <span id="mappingStatusText" class="text-[11px] font-bold text-gray-400 px-2">캔버스: 0개 / 코드: 대기중</span>
+                            <div class="flex gap-2">
+                                <button id="mapCodeBtn" class="text-xs bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1.5 rounded transition-colors shadow-sm">
+                                    좌표 매핑
+                                </button>
+                                <button id="copyCodeBtn" class="text-xs bg-gray-800 hover:bg-gray-700 text-white px-3 py-1.5 rounded transition-colors shadow-sm">
+                                    결과 복사
+                                </button>
+                            </div>
+                        </div>
+                        <textarea id="outputCode" class="w-full flex-1 p-4 text-sm font-mono text-blue-900 bg-transparent resize-none outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 rounded-b-xl" placeholder="여기에 기존 <map> 코드를 붙여넣고 상단의 [좌표 매핑] 버튼을 누르세요.&#10;&#10;캔버스 영역 개수와 코드의 <area> 개수가 일치하면, 코드의 형태는 유지된 채 좌표(coords) 값만 덮어씌워집니다."></textarea>
+                    </div>
                     
                     <!-- 좌표만 탭 내용 (기본 표시) -->
-                    <div id="outputCoords" class="w-full h-full p-4 bg-[#f8fafc] overflow-y-auto absolute inset-0 rounded-b-xl flex flex-col items-stretch">
+                    <div id="outputCoords" class="absolute inset-0 flex flex-col items-stretch p-4 bg-[#f8fafc] overflow-y-auto rounded-b-xl">
                         <div class="text-center py-10 text-gray-400 text-sm">지정된 영역이 없습니다.</div>
                     </div>
 
                     <!-- 영역 목록 탭 내용 -->
-                    <div id="outputList" class="w-full h-full p-2 bg-[#f8fafc] overflow-y-auto absolute inset-0 rounded-b-xl hidden flex flex-col">
+                    <div id="outputList" class="absolute inset-0 hidden flex-col p-2 bg-[#f8fafc] overflow-y-auto rounded-b-xl">
                         <div id="areaList" class="space-y-2">
                             <div class="text-center py-10 text-gray-400 text-sm">지정된 영역이 없습니다.</div>
                         </div>
@@ -151,6 +161,8 @@
         const canvasContainer = document.getElementById('canvasContainer');
         const instructionText = document.getElementById('instructionText');
         const outputCode = document.getElementById('outputCode');
+        const outputHtmlContainer = document.getElementById('outputHtmlContainer');
+        const mappingStatusText = document.getElementById('mappingStatusText');
         const outputCoords = document.getElementById('outputCoords');
         const outputList = document.getElementById('outputList');
         const tabHtml = document.getElementById('tabHtml');
@@ -159,18 +171,20 @@
         const areaListEl = document.getElementById('areaList');
         const clearBtn = document.getElementById('clearBtn');
         const copyCodeBtn = document.getElementById('copyCodeBtn');
+        const mapCodeBtn = document.getElementById('mapCodeBtn');
         const areaCountTab = document.getElementById('areaCountTab');
         const toast = document.getElementById('toast');
         const previewTooltip = document.getElementById('areaPreviewTooltip');
         const previewCanvas = document.getElementById('previewCanvas');
         const previewCtx = previewCanvas.getContext('2d');
-
+        
         let currentImage = new Image();
         let areas = [];
         let manualStep = 0;
         let firstX = 0, firstY = 0;
         let currentFileName = "image.jpg";
         let currentMode = 'auto';
+        let currentMapName = "image-map"; // 추가: 맵 이름 전역 변수
         let isDraggingArea = false;
         let draggedAreaIndex = -1;
         let dragStartX = 0, dragStartY = 0;
@@ -217,32 +231,61 @@
 
         let activeTab = 'coords';
         
+        function updateMappingStatus() {
+            const code = outputCode.value;
+            const match = code.match(/<area\b/gi);
+            const pastedCount = match ? match.length : 0;
+            const drawnCount = areas.length;
+            
+            if (pastedCount === 0 && code.trim() === '') {
+                mappingStatusText.textContent = `캔버스: ${drawnCount}개 / 코드: 대기중`;
+                mappingStatusText.className = 'text-[11px] font-bold text-gray-400 px-2';
+            } else {
+                mappingStatusText.textContent = `캔버스: ${drawnCount}개 / 코드: ${pastedCount}개`;
+                if (drawnCount === pastedCount && pastedCount > 0) {
+                    mappingStatusText.className = 'text-[11px] font-bold text-green-600 px-2'; // 일치하면 초록색
+                } else {
+                    mappingStatusText.className = 'text-[11px] font-bold text-red-500 px-2'; // 다르면 빨간색
+                }
+            }
+        }
+
+        outputCode.addEventListener('input', updateMappingStatus);
+
         function updateTabUI() {
             // 모든 탭 초기화
             [tabHtml, tabCoords, tabList].forEach(tab => {
                 tab.classList.remove('bg-white', 'shadow-sm', 'text-blue-600');
                 tab.classList.add('text-gray-500', 'hover:text-gray-700');
             });
-            outputCode.classList.add('hidden');
+            
+            // 컨테이너 숨김 처리
+            outputHtmlContainer.classList.add('hidden');
+            outputHtmlContainer.classList.remove('flex');
+            
             outputCoords.classList.add('hidden');
+            outputCoords.classList.remove('flex');
+            
             outputList.classList.add('hidden');
-            copyCodeBtn.style.display = 'none';
+            outputList.classList.remove('flex');
 
             // 선택된 탭 활성화
             if (activeTab === 'html') {
                 tabHtml.classList.add('bg-white', 'shadow-sm', 'text-blue-600');
                 tabHtml.classList.remove('text-gray-500', 'hover:text-gray-700');
-                outputCode.classList.remove('hidden');
-                copyCodeBtn.style.display = 'block';
-                copyCodeBtn.textContent = '복사';
+                outputHtmlContainer.classList.remove('hidden');
+                outputHtmlContainer.classList.add('flex');
+                updateMappingStatus();
             } else if (activeTab === 'coords') {
                 tabCoords.classList.add('bg-white', 'shadow-sm', 'text-blue-600');
                 tabCoords.classList.remove('text-gray-500', 'hover:text-gray-700');
                 outputCoords.classList.remove('hidden');
+                outputCoords.classList.add('flex');
             } else if (activeTab === 'list') {
                 tabList.classList.add('bg-white', 'shadow-sm', 'text-blue-600');
                 tabList.classList.remove('text-gray-500', 'hover:text-gray-700');
                 outputList.classList.remove('hidden');
+                outputList.classList.add('flex');
             }
         }
 
@@ -272,6 +315,75 @@
             modeManualBtn.classList.add('text-gray-500', 'hover:text-gray-700');
             instructionText.textContent = "버튼 바탕색을 클릭하면 최적의 영역을 자동 계산합니다.";
             canvasContainer.style.cursor = "crosshair";
+        });
+
+        // HTML 탭 내부의 매핑 버튼 로직
+        mapCodeBtn.addEventListener('click', () => {
+            const code = outputCode.value.trim();
+            if (!code) {
+                alert('매핑할 기존 코드를 먼저 붙여넣어 주세요.');
+                return;
+            }
+
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(code, 'text/html');
+            const areaNodes = doc.querySelectorAll('area');
+            const mapNode = doc.querySelector('map');
+
+            if (areaNodes.length === 0) {
+                alert('입력한 코드에서 <area> 태그를 찾을 수 없습니다.');
+                return;
+            }
+
+            // 개수가 정확히 일치하는지 검사
+            if (areaNodes.length !== areas.length) {
+                alert(`영역 개수가 일치하지 않습니다!\n\n- 캔버스에 그린 영역: ${areas.length}개\n- 붙여넣은 코드의 영역: ${areaNodes.length}개\n\n그려진 영역의 개수와 코드의 영역 개수를 동일하게 맞춘 후 다시 시도해주세요.`);
+                return;
+            }
+
+            // 개수가 일치하면 매핑 시작
+            if (mapNode && mapNode.getAttribute('name')) {
+                currentMapName = mapNode.getAttribute('name'); // 기존 map name 유지
+            }
+
+            // 1. 목록 탭 동기화를 위해 areas 객체 정보 갱신
+            areaNodes.forEach((node, i) => {
+                const href = node.getAttribute('href') || '#';
+                const alt = node.getAttribute('alt') || '';
+                areas[i].href = href;
+                areas[i].alt = alt;
+            });
+
+            // 2. 실제 텍스트 값의 coords 부분만 정규식으로 교체 (원래 들여쓰기, 줄바꿈 100% 유지)
+            let areaIndex = 0;
+            const newCode = code.replace(/<area[^>]*>/gi, (match) => {
+                if (areaIndex < areas.length) {
+                    const newCoords = areas[areaIndex].coords.join(',');
+                    let newMatch = match;
+                    
+                    if (/coords\s*=\s*["'][^"']*["']/i.test(newMatch)) {
+                        // 기존 coords 값이 있으면 교체
+                        newMatch = newMatch.replace(/(coords\s*=\s*["'])[^"']*(["'])/i, `$1${newCoords}$2`);
+                    } else {
+                        // coords 속성이 없는 경우 태그 닫기 전에 추가
+                        if (newMatch.endsWith('/>')) {
+                            newMatch = newMatch.slice(0, -2) + ` coords="${newCoords}" />`;
+                        } else {
+                            newMatch = newMatch.slice(0, -1) + ` coords="${newCoords}">`;
+                        }
+                    }
+                    areaIndex++;
+                    return newMatch;
+                }
+                return match;
+            });
+
+            outputCode.value = newCode;
+            alert('성공적으로 새로운 좌표가 기존 코드에 매핑되었습니다!');
+            
+            // UI 갱신 (목록 탭 등)
+            outputCode.blur(); 
+            updateAll();
         });
 
         function processImageFile(file) {
@@ -791,22 +903,13 @@
         }
 
         function generateCode() {
+            // 이제 HTML(코드 매핑) 탭의 textarea에는 자동 생성된 코드를 덮어쓰지 않습니다.
+            // textarea는 오직 사용자의 코드 입력과 매핑 결과 출력용으로만 사용됩니다.
+
             if (areas.length === 0) {
-                outputCode.value = '';
                 outputCoords.innerHTML = '<div class="text-center py-10 text-gray-400 text-sm">지정된 영역이 없습니다.</div>';
                 return;
             }
-
-            let code = `<!-- 이미지 태그에 usemap 속성을 추가하세요 -->\n`;
-            code += `<img src="${currentFileName}" alt="이벤트 이미지" usemap="#image-map">\n\n`;
-            code += `<map name="image-map">\n`;
-            
-            areas.forEach(area => {
-                code += `    <area alt="${area.alt}" title="${area.alt}" href="${area.href}" coords="${area.coords.join(',')}" shape="rect">\n`;
-            });
-            
-            code += `</map>`;
-            outputCode.value = code;
 
             outputCoords.innerHTML = '';
             areas.forEach((area, index) => {
@@ -927,6 +1030,7 @@
             drawCanvas();
             generateCode();
             renderAreaList();
+            updateMappingStatus();
         }
 
         clearBtn.addEventListener('click', (e) => {
