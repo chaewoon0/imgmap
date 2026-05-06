@@ -130,9 +130,12 @@
         </div>
     </main>
 
-    <!-- 영역 미리보기 툴팁 (마우스 오버 시 표시) -->
-    <div id="areaPreviewTooltip" class="fixed z-50 pointer-events-none hidden bg-white p-1.5 rounded-lg shadow-xl border border-gray-200">
-        <canvas id="previewCanvas" class="block rounded border border-gray-100"></canvas>
+    <!-- 영역 미리보기 툴팁 (좌측 하단 고정) -->
+    <div id="areaPreviewTooltip" class="fixed bottom-8 left-8 z-50 pointer-events-none hidden transition-opacity duration-200">
+        <div class="bg-white/95 backdrop-blur p-2 rounded-xl shadow-2xl border border-gray-200 flex flex-col gap-1">
+            <span class="text-[10px] font-bold text-gray-400 px-1 uppercase tracking-wider">미리보기</span>
+            <canvas id="previewCanvas" class="block rounded border border-gray-100 bg-gray-50"></canvas>
+        </div>
     </div>
 
     <!-- 커스텀 알림 모달 -->
@@ -178,30 +181,15 @@
         let fixedX = 0, fixedY = 0;
 
         // --- 공통 툴팁 제어 로직 ---
-        const positionTooltip = (e) => {
-            let left = e.clientX - previewTooltip.offsetWidth - 15; // 마우스 좌측에 배치
-            let top = e.clientY - (previewTooltip.offsetHeight / 2); // 수직 중앙 정렬 느낌
-            
-            // 화면 밖으로 나가지 않도록 경계 보정
-            if (left < 10) left = e.clientX + 15; // 좌측 공간이 부족하면 우측에 표시
-            if (top < 10) top = 10;
-            if (top + previewTooltip.offsetHeight > window.innerHeight - 10) {
-                top = window.innerHeight - previewTooltip.offsetHeight - 10;
-            }
-            
-            previewTooltip.style.left = left + 'px';
-            previewTooltip.style.top = top + 'px';
-        };
-
-        const showPreviewTooltip = (e, area) => {
+        const showPreviewTooltip = (area) => {
             const [x1, y1, x2, y2] = area.coords;
             const w = x2 - x1;
             const h = y2 - y1;
             
             if (w <= 0 || h <= 0) return;
 
-            // 최대 미리보기 크기 설정 (500px로 축소)
-            const MAX_SIZE = 500;
+            // 최대 미리보기 크기 설정 (600px로 확대)
+            const MAX_SIZE = 600;
             let scale = 1;
             if (w > MAX_SIZE || h > MAX_SIZE) {
                 scale = Math.min(MAX_SIZE / w, MAX_SIZE / h);
@@ -217,9 +205,6 @@
             previewCtx.drawImage(currentImage, x1, y1, w, h, 0, 0, pWidth, pHeight);
             
             previewTooltip.classList.remove('hidden');
-            
-            // 렌더링 후 크기를 기반으로 위치 조정
-            requestAnimationFrame(() => positionTooltip(e));
         };
 
         const hidePreviewTooltip = () => {
@@ -845,8 +830,7 @@
                 });
                 
                 // 마우스 호버(미리보기 툴팁) 이벤트 추가 (좌표만 탭)
-                btn.addEventListener('mouseenter', (e) => showPreviewTooltip(e, area));
-                btn.addEventListener('mousemove', positionTooltip);
+                btn.addEventListener('mouseenter', () => showPreviewTooltip(area));
                 btn.addEventListener('mouseleave', hidePreviewTooltip);
                 
                 outputCoords.appendChild(btn);
@@ -905,8 +889,7 @@
                 `;
                 
                 // 마우스 호버(미리보기 툴팁) 이벤트 공통 함수 적용 (목록 탭)
-                item.addEventListener('mouseenter', (e) => showPreviewTooltip(e, area));
-                item.addEventListener('mousemove', positionTooltip);
+                item.addEventListener('mouseenter', () => showPreviewTooltip(area));
                 item.addEventListener('mouseleave', hidePreviewTooltip);
 
                 areaListEl.appendChild(item);
